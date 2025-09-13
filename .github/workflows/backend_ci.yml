@@ -1,44 +1,28 @@
-# week07/.github/workflows/backend_ci.yml
-
 name: Backend CI - Test, Build and Push Images to ACR
 
-# Trigger the workflow on pushes to the 'main' branch
-# You can also add 'pull_request:' to run on PRs
 on:
-  # Manual trigger
   workflow_dispatch:
-
-  # Automatically on pushes to main branch
   push:
-    branches:
-      - main
-    paths: # Only trigger if changes are in backend directories
+    branches: [ main ]
+    paths:
       - 'backend/**'
-      - '.github/workflows/backend_ci.yml' # Trigger if this workflow file changes
+      - '.github/workflows/backend_ci.yml'
 
-# Define global environment variables that can be used across jobs
 env:
-  # ACR Login Server (e.g., myregistry.azurecr.io)
-  # This needs to be set as a GitHub Repository Secret
   ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
-  # Dynamically generate image tags based on Git SHA and GitHub Run ID
-  # This provides unique, traceable tags for each image build
   IMAGE_TAG: ${{ github.sha }}-${{ github.run_id }}
 
 jobs:
-  # Job 1: Run tests and linting for all backend services
   test_and_lint_backends:
-    runs-on: ubuntu-latest # Use a GitHub-hosted runner
+    runs-on: ubuntu-latest
 
     services:
-      # Product DB container
       product_db:
         image: postgres:15
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: products
-        # Make pg_isready available so the service is healthy before tests run
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 10s
@@ -46,46 +30,39 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
-      
-      # Order DB
+
       order_db:
         image: postgres:15
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: orders
-        ports:
-          - 5433:5432
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+        ports:
+          - 5433:5432
 
     steps:
-      # 1. Checkout the repository code to the runner
       - name: Checkout repository
-        uses: actions/checkout@v4 # Action to check out your repository code
+        uses: actions/checkout@v4
 
-      # 2. Set up Python environment
       - name: Set up Python 3.10
-        uses: actions/setup-python@v5 # Action to set up Python environment
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      # 3. Install dependencies and run code quality checks
       - name: Install dependencies
-        run: | # Use a multi-line script to install pip dependencies
+        run: |
           pip install --upgrade pip
-          # Loop through each backend service folder
           for req in backend/*/requirements.txt; do
             echo "Installing $req"
             pip install -r "$req"
           done
-          # Install CI tools
           pip install pytest httpx
 
-      # 5. Run tests for product service
       - name: Run product_service tests
         working-directory: backend/product_service
         env:
@@ -94,10 +71,8 @@ jobs:
           POSTGRES_DB: products
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-        run: |
-          pytest tests --maxfail=1 --disable-warnings -q
-      
-      # 6. Run tests for order service
+        run: pytest tests --maxfail=1 --disable-warnings -q
+
       - name: Run order_service tests
         working-directory: backend/order_service
         env:
@@ -106,55 +81,6 @@ jobs:
           POSTGRES_DB: orders
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-        run: |
-          pytest tests --maxfail=1 --disable-warnings -q
+        run: pytest tests --maxfail=1 --disable-warnings -q
 
-  # Job 2: Build and Push Docker Images (runs only if tests pass)
- build_and_push_images:
-  runs-on: ubuntu-latest
-  needs: test_and_lint_backends
-
-  steps:
-    - name: Checkout repository
-    # v4 is fine
-      uses: actions/checkout@v4
-
-    # If you want to keep Azure login for other Azure CLIs, keep this step:
-    - name: Azure Login
-      uses: azure/login@v1
-      with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-    # ✅ Login to ACR via Docker (uses your 3 repo secrets)
-    - name: Docker login to ACR
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ secrets.ACR_LOGIN_SERVER }}   # e.g., acr722s223121256.azurecr.io
-        username: ${{ secrets.REGISTRY_USERNAME }}
-        password: ${{ secrets.REGISTRY_PASSWORD }}
-
-    # ✅ Build & Push Product Service (use dash in repo name; both work, but dash is common)
-    - name: Build & push product-service
-      uses: docker/build-push-action@v5
-      with:
-        context: ./backend/product_service
-        push: true
-        tags: |
-          ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
-          ${{ secrets.ACR_LOGIN_SERVER }}/product-service:${{ github.sha }}
-
-    # ✅ Build & Push Order Service
-    - name: Build & push order-service
-      uses: docker/build-push-action@v5
-      with:
-        context: ./backend/order_service
-        push: true
-        tags: |
-          ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
-          ${{ secrets.ACR_LOGIN_SERVER }}/order-service:${{ github.sha }}
-
-    - name: Logout from Azure
-      if: always()
-      run: az logout
-
-      if: always()
+  build_and_p
